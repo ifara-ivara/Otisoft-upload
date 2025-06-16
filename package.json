@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node build/index.js",
+    "start": "pm2 start pm2.config.mjs",
     "test": "jest --detectOpenHandles",
     "test-watch": "jest --watch --detectOpenHandles",
     "clean": "rimraf .next && rimraf node_modules && rimraf build",
@@ -47,6 +47,7 @@
     "mongoose": "^8.13.2",
     "pino": "^8.17.2",
     "pino-pretty": "^13.0.0",
+    "pm2": "^6.0.8",
     "ts-node": "^10.9.2",
     "zod": "^3.22.4"
   },

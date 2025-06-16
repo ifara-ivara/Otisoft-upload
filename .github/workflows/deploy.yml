@@ -1,0 +1,69 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # Add overall timeout
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get SSH Key and set permissions
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{secrets.SSH_PRIVATE_KEY}}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{secrets.SSH_HOST}} >> ~/.ssh/known_hosts
+
+          # Configure global SSH settings for keepalive
+          cat >> ~/.ssh/config << EOF
+          Host *
+            ServerAliveInterval 60
+            ServerAliveCountMax 10
+            StrictHostKeyChecking no
+          EOF
+          chmod 600 ~/.ssh/config
+
+          # Test the key format
+          ssh-keygen -l -f ~/.ssh/id_rsa
+          # Test SSH connection
+          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}} "echo 'SSH connection successful'"
+
+      - name: Delete previous project src folder
+        run: |
+          # don't delete whole project so uploads directory will be persisted
+          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}} "rm -rf /var/www/assets.otisoft.io/src && mkdir -p /var/www/assets.otisoft.io"
+      
+      - name: Copy project to remote server
+        run: |
+          scp -i ~/.ssh/id_rsa -r ./* ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}}:/var/www/assets.otisoft.io/
+
+      - name: Create environment file
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}} "cat > /var/www/assets.otisoft.io/.env << 'EOF'
+          PORT=${{ secrets.PORT }}
+          DB_URI=${{ secrets.DB_URI }}
+          BASE_URL=${{ secrets.BASE_URL }}
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          EOF"
+
+      - name: Deploy on remote server
+        run: |
+          ssh -i ~/.ssh/id_rsa ${{secrets.SSH_USER}}@${{secrets.SSH_HOST}} << EOF
+          cd /var/www/assets.otisoft.io
+          # Install dependencies
+          pnpm i
+          pnpm build
+
+          # Try to reload, if it fails (first deployment), start new instance with PM2
+          pm2 reload otisoft-upload || pm2 start pm2.config.mjs
+
+          # Save PM2 process list and setup startup
+          pm2 save
+          pm2 startup | tail -n 1 | bash || true
+          EOF
